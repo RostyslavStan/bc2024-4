@@ -1,24 +1,84 @@
-const {program} = require('commander');
 const http = require('http');
-const fs = require('fs');
+const fs = require('fs').promises;
+const path = require('path');
+const { program } = require('commander');
+const superagent = require('superagent');
 
 program
-.requiredOption('-h, --host <address>')
-.requiredOption('-p, --port <number>')
-.requiredOption('-c, --cache <directory>');
+  .requiredOption('-h, --host <host>', 'Адреса сервера')
+  .requiredOption('-p, --port <port>', 'Порт сервера')
+  .requiredOption('-c, --cache <cache>', 'Шлях до кешу')
+  .parse(process.argv);
 
-program.parse();
 const options = program.opts();
 
-const requestListener = function (req, res)
-{
-    res.writeHead(200);
+const server = http.createServer(async (req, res) => {
+    const urlParts = req.url.split('/');
+    const httpCode = urlParts[1];
+    const imagePath = path.join(options.cache, `${httpCode}.jpg`);
+    switch (req.method) {
+        case 'GET':
+            try {
+                const image = await fs.readFile(imagePath);
+                res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+                res.statusCode = 200;
+                res.end(image);
+            } catch (error) {
+                try {
+                    const response = await superagent.get(`https://http.cat/${httpCode}`).responseType('blob');;
+                    const image = response.body;
 
-    res.end("Hello world!");
-}
- 
-const server = http.createServer(requestListener);
+                    await fs.writeFile(imagePath, image);
+
+                    res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+                    res.end(image);
+                } catch (err) {
+                    res.writeHead(404, { 'Content-Type': 'text/plain' });
+                    res.end('Image not found');
+                }
+            }
+            break;
+
+        case "PUT":
+            try {
+                const data = await new Promise((resolve, reject) => {
+                    const chunks = [];
+                    req.on('data', chunk => chunks.push(chunk));
+                    req.on('end', () => resolve(Buffer.concat(chunks)));
+                    req.on('error', reject);
+                });
+
+                if (data.length > 0) {
+                    await fs.writeFile(imagePath, data);
+                    res.writeHead(201, { 'Content-Type': 'text/plain' });
+                    res.end('Image saved');
+                }
+            } catch (error) {
+                console.error('Error saving image:', error); 
+                res.writeHead(500, { 'Content-Type': 'text/plain' });
+                res.end('Error saving image');
+            }
+            break;
+            
+
+        case 'DELETE':
+            try {
+                await fs.unlink(imagePath);
+                res.writeHead(200, { 'Content-Type': 'text/plain' });
+                res.end('Image deleted');
+            } catch (error) {
+                res.writeHead(404, { 'Content-Type': 'text/plain' });
+                res.end('Image not found');
+            }
+            break;
+
+        default:
+            res.writeHead(405, { 'Content-Type': 'text/plain' });
+            res.end('Method not allowed');
+            break;
+    }
+});
 
 server.listen(options.port, options.host, () => {
-    console.log(`http://${options.host}:${options.port}`);
-})
+    console.log(`Server running at http://${options.host}:${options.port}/`);
+});
