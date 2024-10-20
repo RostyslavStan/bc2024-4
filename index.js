@@ -36,7 +36,7 @@ const server = http.createServer(async (req, res) => {
                     res.writeHead(404, { 'Content-Type': 'text/plain' });
                     res.end('Image not found');
                 }
-            } 
+            }   
             break;
 
         case "PUT":
